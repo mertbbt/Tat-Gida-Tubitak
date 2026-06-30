@@ -31,10 +31,38 @@ veri toplama/etiketleme, yetkilendirme/veritabanı, Jetson'a fiili dağıtım.
 
 ## Kurulum
 
+> Not: Hedef çalışma ortamı **Ubuntu/Jetson**'dır. Aşağıdaki **Windows** adımları
+> yalnızca yerel **geliştirme/test** içindir; seçilen tüm paketler (FastAPI,
+> OpenCV, python-snap7) Windows'ta da kurulur. Saha dağıtımı Linux'tadır.
+
+### Linux / macOS
+
 ```bash
 python3 -m venv venv
-source venv/bin/activate          # Windows yok; Linux/macOS
+source venv/bin/activate
 pip install -r requirements.txt
+```
+
+### Windows (geliştirme/test)
+
+Python 3.10+ kurulu olmalı (<https://www.python.org/downloads/> — kurulumda
+"Add Python to PATH" işaretleyin).
+
+PowerShell:
+
+```powershell
+python -m venv venv
+venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+
+> PowerShell "running scripts is disabled" hatası verirse, bir kerelik:
+> `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`
+
+Komut İstemi (cmd) kullanıyorsanız aktivasyon satırı:
+
+```bat
+venv\Scripts\activate.bat
 ```
 
 ## Çalıştırma
