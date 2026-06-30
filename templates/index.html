@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Konserve Kutu Kalite Kontrol</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">QC</span>
+      <div class="brand-text">
+        <strong>Konserve Kutu Kalite Kontrol</strong>
+        <span class="phase">Ön Çalışma — Canlı Görüntüleme</span>
+      </div>
+    </div>
+    <div class="status-inline">
+      <span class="chip"><span class="k">Kamera</span><span id="st-camera" class="v">—</span></span>
+      <span class="chip"><span class="k">FPS</span><span id="st-fps" class="v mono">0</span></span>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- Canlı kamera -->
+    <section class="main-col">
+      <div class="video-wrap">
+        <img id="video" src="/video_feed" alt="Canlı kamera görüntüsü" />
+        <div id="video-overlay" class="video-overlay">
+          <div class="ov-inner">
+            <span class="ov-icon">▶</span>
+            Akış durduruldu — başlatmak için <b>Başlat</b>
+          </div>
+        </div>
+      </div>
+      <div class="controls">
+        <button id="btn-start" class="btn btn-start">▶ Başlat</button>
+        <button id="btn-stop" class="btn btn-stop" disabled>■ Durdur</button>
+        <button id="btn-record" class="btn btn-ghost" disabled title="Sahada veri toplama için aktifleşecek">
+          ● Kayıt <span class="tag tag-soon">pasif</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Yan panel: kalite kontrol odaklı -->
+    <aside class="side-col">
+
+      <!-- Kalite sonucu (kalite kontrol ekibinin baktığı ana gösterge) -->
+      <section class="panel">
+        <h2>Kalite Sonucu</h2>
+        <div id="result-pill" class="result-pill result-idle">
+          MODEL BAĞLI DEĞİL
+        </div>
+        <ul class="defect-list">
+          <li><span>Deformasyon</span><span class="state">—</span></li>
+          <li><span>Eğrilik</span><span class="state">—</span></li>
+          <li><span>Gövde yamukluğu</span><span class="state">—</span></li>
+          <li><span>Kapak oturma bölgesi</span><span class="state">—</span></li>
+        </ul>
+        <p class="note">
+          Tespit modeli (Jetson / Ubuntu) sahada bağlanacaktır.
+          <span class="tag tag-soon">pasif</span>
+        </p>
+      </section>
+
+      <!-- Üretim / sayaç (şirket sistemi) -->
+      <section class="panel">
+        <h2>Üretim</h2>
+        <div class="big-metric">
+          <span class="metric-label">Ürün Sayacı</span>
+          <span id="counter-value" class="metric-value mono">—</span>
+        </div>
+        <div class="kv">
+          <span>Hat durumu</span>
+          <span class="badge badge-idle">Sahada bağlanacak</span>
+        </div>
+        <p class="note">
+          Sayaç, şirket sisteminden (PLC) ürün çıktıkça artacak; hat çalıştıkça
+          kamera otomatik tetiklenecek. <span class="tag tag-soon">pasif</span>
+        </p>
+      </section>
+
+      <!-- Bağlantılar -->
+      <section class="panel">
+        <h2>Bağlantılar</h2>
+        <ul class="conn-list">
+          <li>
+            <span class="dot-live" id="conn-camera-dot"></span>
+            <span class="conn-name">Kamera</span>
+            <span id="conn-camera" class="conn-state">—</span>
+          </li>
+          <li>
+            <span class="dot-off"></span>
+            <span class="conn-name">PLC (S7-1500)</span>
+            <span class="conn-state off">Bağlı değil <span class="tag tag-soon">saha</span></span>
+          </li>
+          <li>
+            <span class="dot-off"></span>
+            <span class="conn-name">Model (Jetson)</span>
+            <span class="conn-state off">Bağlı değil <span class="tag tag-soon">saha</span></span>
+          </li>
+        </ul>
+      </section>
+
+      <!-- Yönetim / ayarlar (şimdilik pasif) -->
+      <section class="panel panel-muted">
+        <h2>Yönetim <span class="tag tag-soon">sahada aktifleşecek</span></h2>
+        <div class="form-row">
+          <label>Kamera kaynağı</label>
+          <select disabled>
+            <option>Webcam (geliştirme)</option>
+            <option>Hikrobot MV-CS050-60GC (saha)</option>
+          </select>
+        </div>
+        <div class="form-row toggle-row">
+          <label>Tespit (detection)</label>
+          <span class="switch switch-off"><span></span></span>
+        </div>
+        <div class="form-row toggle-row">
+          <label>Görüntü kaydı</label>
+          <span class="switch switch-off"><span></span></span>
+        </div>
+        <p class="note">Bu ayarlar saha entegrasyonunda devreye alınacaktır.</p>
+      </section>
+
+    </aside>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

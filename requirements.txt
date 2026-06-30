@@ -1,0 +1,8 @@
+# Faz 1 - Canlı Kamera Arayüzü bağımlılıkları
+# Tüm paketler Ubuntu / Jetson (Linux ARM64) uyumludur. Windows'a özel paket yoktur.
+fastapi>=0.110
+uvicorn[standard]>=0.29
+opencv-python>=4.8
+numpy>=1.24
+jinja2>=3.1
+python-snap7>=2.0
