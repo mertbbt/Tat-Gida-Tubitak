@@ -136,14 +136,23 @@ class AppState:
     def _plc_poll_loop(self) -> None:
         while not self._plc_stop.is_set():
             try:
+                if not self.plc.is_connected():
+                    # Kopmus baglantiyi temiz durumdan tekrar kur
+                    try:
+                        self.plc.disconnect()
+                    except Exception:
+                        pass
+                    self.plc.connect()
                 value = self.plc.read_counter()
                 self._counter = value
                 self._line_running = self.plc.is_line_running()
-                self._plc_connected = self.plc.is_connected()
+                self._plc_connected = True
             except Exception as exc:
                 self._plc_connected = False
                 self._line_running = False
-                print(f"[PLC] Okuma hatası: {exc}")
+                print(f"[PLC] Hata, {config.PLC_RECONNECT_INTERVAL}s sonra tekrar denenecek: {exc}")
+                self._plc_stop.wait(config.PLC_RECONNECT_INTERVAL)
+                continue
             self._plc_stop.wait(config.PLC_POLL_INTERVAL)
 
     # ----- kamera başlat/durdur ------------------------------------------
@@ -202,11 +211,10 @@ class AppState:
         while True:
             loop_start = time.monotonic()
             streaming = self.is_streaming
-
+            active = streaming and (self._line_running or not config.REQUIRE_LINE_RUNNING)
             # Ön çalışma: akış yalnızca Başlat/Durdur'a bağlı; PLC'ye bakmaz.
-            # NOT (sonraki adım/saha): hat yalnızca çalışırken işleme yapmak
             # için buraya `and self._line_running` koşulu geri eklenecek.
-            if streaming:
+            if active:
                 frame = self.camera.read()
                 if frame is not None:
                     frame = self.process_frame(frame)
@@ -280,6 +288,10 @@ class AppState:
         return img
 
     # ----- durum (status) -------------------------------------------------
+    def last_frame(self) -> Optional[np.ndarray]:
+        """Son islenen karenin kopyasini dondurur (yoksa None)."""
+        frame = self._last_frame
+        return None if frame is None else frame.copy()
     def status(self) -> dict:
         return {
             "streaming": self.is_streaming,

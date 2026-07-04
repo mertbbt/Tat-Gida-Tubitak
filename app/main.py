@@ -9,9 +9,11 @@ Endpoint'ler:
   POST /camera/stop   -> akışı durdur
 """
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+import cv2
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -80,3 +82,19 @@ async def camera_stop():
     assert state is not None
     state.stop_streaming()
     return JSONResponse({"ok": True, "streaming": False})
+
+@app.post("/snapshot")
+def snapshot(label: str = "raw"):
+    """Son kareyi data/<label>/ altina kaydeder (veri toplama icin)."""
+    if label not in ("ok", "nok", "raw"):
+        raise HTTPException(400, "Gecersiz etiket")
+    assert state is not None
+    frame = state.last_frame()
+    if frame is None:
+        raise HTTPException(409, "Henuz kare yok - akisi baslatin")
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    out_dir = Path("data") / label
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / f"{ts}.jpg"
+    cv2.imwrite(str(path), frame)
+    return {"saved": str(path)}

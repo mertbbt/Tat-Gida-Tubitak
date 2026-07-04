@@ -70,3 +70,12 @@ el.btnStop.addEventListener("click", stopStream);
 
 pollStatus();
 setInterval(pollStatus, POLL_MS);
+
+async function snapshot(label) {
+    const res = await fetch(`/snapshot?label=${label}`, { method: "POST" });
+    const data = await res.json();
+    console.log(res.ok ? `Kaydedildi: ${data.saved}` : `Hata: ${data.detail}`);
+}
+
+document.getElementById("btn-ok").addEventListener("click", () => snapshot("ok"));
+document.getElementById("btn-nok").addEventListener("click", () => snapshot("nok"));

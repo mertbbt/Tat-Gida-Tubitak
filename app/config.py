@@ -68,11 +68,12 @@ PLC_COUNTER_OFFSET = _env_int("PLC_COUNTER_OFFSET", 0)  # TODO: sayacın byte of
 
 # PLC'nin ne sıklıkla yoklanacağı (saniye)
 PLC_POLL_INTERVAL = _env_float("PLC_POLL_INTERVAL", 0.5)
-
+PLC_RECONNECT_INTERVAL = _env_float("PLC_RECONNECT_INTERVAL", 5.0)
 # Hat "çalışıyor" kabul edilmesi için: sayaç son değişimden bu kadar saniye
 # içinde değişmişse hat çalışıyor sayılır. Bu süre boyunca değişim yoksa
 # hat "durdu" kabul edilir.
 LINE_RUNNING_TIMEOUT = _env_float("LINE_RUNNING_TIMEOUT", 2.0)
+REQUIRE_LINE_RUNNING = _env_bool("REQUIRE_LINE_RUNNING", False)
 
 # ----------------------------------------------------------------------------
 # Mock PLC ayarları (PLC_ENABLED=False iken kullanılır)
