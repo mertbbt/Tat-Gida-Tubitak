@@ -32,23 +32,18 @@ class WebcamSource(CameraSource):
         with self._lock:
             if self._cap is not None and self._cap.isOpened():
                 return
-            import sys
-            if sys.platform == "win32":
-                cap = cv2.VideoCapture(self._index, cv2.CAP_DSHOW)
-            else:
-                cap = cv2.VideoCapture(self._index)
+            cap = cv2.VideoCapture(self._index)
             if not cap.isOpened():
                 raise RuntimeError(
                     f"Webcam açılamadı (index={self._index}). "
                     f"Kamera bağlı mı ve başka bir uygulama tarafından "
                     f"kullanılıyor olmadığından emin olun."
                 )
-            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._width)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._height)
             cap.set(cv2.CAP_PROP_FPS, self._fps)
             self._cap = cap
-            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+
     def read(self) -> Optional[np.ndarray]:
         with self._lock:
             if self._cap is None or not self._cap.isOpened():
