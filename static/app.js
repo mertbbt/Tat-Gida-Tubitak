@@ -4,10 +4,32 @@
 
 const POLL_MS = 1000;
 
+// Ekranın köşesinde geçici bildirim gösterir.
+// type: "ok" (yeşil) veya "err" (kırmızı)
+function showToast(message, type = "ok") {
+  const container = document.getElementById("toast-container");
+  if (!container) return;
+
+  const toast = document.createElement("div");
+  toast.className = `toast toast-${type}`;
+  toast.textContent = message;
+  container.appendChild(toast);
+
+  // Bir sonraki karede "show" ekle ki geçiş animasyonu çalışsın
+  requestAnimationFrame(() => toast.classList.add("show"));
+
+  // 3 saniye sonra soldur ve DOM'dan kaldır
+  setTimeout(() => {
+    toast.classList.remove("show");
+    setTimeout(() => toast.remove(), 300);
+  }, 3000);
+}
+
 const el = {
   overlay: document.getElementById("video-overlay"),
   btnStart: document.getElementById("btn-start"),
   btnStop: document.getElementById("btn-stop"),
+  btnCapture: document.getElementById("btn-capture"),
   stFps: document.getElementById("st-fps"),
   stCamera: document.getElementById("st-camera"),
   connCamera: document.getElementById("conn-camera"),
@@ -65,17 +87,23 @@ async function pollStatus() {
   } catch (_) {}
 }
 
+async function capturePhoto() {
+  try {
+    const res = await fetch(`/snapshot`, { method: "POST" });
+    const data = await res.json();
+    if (res.ok) {
+      showToast("Fotoğraf kaydedildi", "ok");
+    } else {
+      showToast(`Kaydedilemedi: ${data.detail || "bilinmeyen hata"}`, "err");
+    }
+  } catch (e) {
+    showToast("Sunucuya ulaşılamadı", "err");
+  }
+}
+
 el.btnStart.addEventListener("click", startStream);
 el.btnStop.addEventListener("click", stopStream);
+el.btnCapture.addEventListener("click", capturePhoto);
 
 pollStatus();
 setInterval(pollStatus, POLL_MS);
-
-async function snapshot(label) {
-    const res = await fetch(`/snapshot?label=${label}`, { method: "POST" });
-    const data = await res.json();
-    console.log(res.ok ? `Kaydedildi: ${data.saved}` : `Hata: ${data.detail}`);
-}
-
-document.getElementById("btn-ok").addEventListener("click", () => snapshot("ok"));
-document.getElementById("btn-nok").addEventListener("click", () => snapshot("nok"));

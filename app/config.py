@@ -80,3 +80,18 @@ REQUIRE_LINE_RUNNING = _env_bool("REQUIRE_LINE_RUNNING", False)
 # ----------------------------------------------------------------------------
 # Sahte sayacın artış aralığı (saniye). 0'dan büyükse hat hep "çalışıyor".
 MOCK_PLC_INCREMENT_INTERVAL = _env_float("MOCK_PLC_INCREMENT_INTERVAL", 0.4)
+# ----------------------------------------------------------------------------
+# Otomatik kayıt (sayaç arttıkça kare kaydetme - veri toplama)
+# ----------------------------------------------------------------------------
+# True ise: PLC sayacı her arttığında o anki kare otomatik diske kaydedilir.
+# Arayüzdeki "Görüntü kaydı" anahtarı bunu çalışma anında açıp kapatır;
+# buradaki değer başlangıç durumudur.
+AUTO_CAPTURE_ENABLED = _env_bool("AUTO_CAPTURE_ENABLED", False)
+
+# Otomatik kaydedilen görüntülerin kök klasörü.
+CAPTURE_DIR = _env_str("CAPTURE_DIR", "data")
+
+# Otomatik kayıtlarda kullanılacak etiket alt klasörü (ör. data/dataset/...).
+# Elle "okey/not okey" kayıtları ayrı klasörlere gider; otomatik toplama
+# ham veri olduğu için nötr bir isim.
+CAPTURE_LABEL = _env_str("CAPTURE_LABEL", "dataset")

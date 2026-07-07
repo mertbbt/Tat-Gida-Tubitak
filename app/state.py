@@ -10,6 +10,8 @@ Model entegrasyonu (sonraki faz) için tek bir kanca noktası vardır:
 `process_frame()` -> şu an kareyi olduğu gibi döndürür; ileride inference
 burada çalışacaktır.
 """
+from datetime import datetime
+from pathlib import Path
 import threading
 import time
 from typing import Optional
@@ -88,6 +90,8 @@ class AppState:
         self._state_lock = threading.Lock()
 
         # PLC yoklama thread'i
+        self._capture_thread: Optional[threading.Thread] = None
+        self._capture_stop = threading.Event()
         self._plc_thread: Optional[threading.Thread] = None
         self._plc_stop = threading.Event()
         self._counter: int = 0
@@ -100,6 +104,14 @@ class AppState:
 
         # Son işlenen kare (hat durunca "beklemede" göstermek için)
         self._last_frame: Optional[np.ndarray] = None
+        self._frame_lock = threading.Lock()
+                # Otomatik kayıt durumu (arayüzden açılıp kapanır).
+        self._auto_capture: bool = config.AUTO_CAPTURE_ENABLED
+        # Otomatik kayıtta son kaydedilen sayaç değeri (aynı kutuyu iki kez
+        # yazmamak için). None = henüz kayıt yapılmadı.
+        self._last_saved_counter: Optional[int] = None
+        # Toplam otomatik kaydedilen kare sayısı (arayüzde göstermek için).
+        self._captured_count: int = 0
 
     # ----- yaşam döngüsü --------------------------------------------------
     def startup(self) -> None:
@@ -117,8 +129,17 @@ class AppState:
         )
         self._plc_thread.start()
 
+        self._capture_stop.clear()
+        self._capture_thread = threading.Thread(
+            target=self._capture_loop, name="capture", daemon=True
+        )
+        self._capture_thread.start()
+
     def shutdown(self) -> None:
         """Uygulama kapanışında: thread'i durdur, kaynakları serbest bırak."""
+        self._capture_stop.set()
+        if self._capture_thread is not None:
+            self._capture_thread.join(timeout=2.0)
         self._plc_stop.set()
         if self._plc_thread is not None:
             self._plc_thread.join(timeout=2.0)
@@ -144,6 +165,12 @@ class AppState:
                         pass
                     self.plc.connect()
                 value = self.plc.read_counter()
+                if self._auto_capture and value != self._counter:
+                    if self._last_saved_counter is not None:
+                        saved = self.save_current_frame(config.CAPTURE_LABEL)
+                        if saved is not None:
+                            self._captured_count += 1
+                    self._last_saved_counter = value
                 self._counter = value
                 self._line_running = self.plc.is_line_running()
                 self._plc_connected = True
@@ -182,7 +209,66 @@ class AppState:
         #   frame = draw_overlay(frame, result)  # işaretli kutu + etiket
         #   self._update_defect_stats(result)
         return frame
+        # ----- kare kaydetme (otomatik + elle snapshot ortak) ----------------
+    def save_current_frame(self, label: str) -> Optional[str]:
+        """
+        _last_frame'i data/<label>/ altına timestamp'li JPEG olarak yazar.
+        Kaydedilen dosya yolunu döndürür; kare yoksa None döndürür.
+        Hem otomatik kayıt hem elle snapshot bunu kullanır.
+        """
+        with self._frame_lock:
+            frame = None if self._last_frame is None else self._last_frame.copy()
+        if frame is None:
+            return None
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        out_dir = Path(config.CAPTURE_DIR) / label
+        out_dir.mkdir(parents=True, exist_ok=True)
+        path = out_dir / f"{ts}.jpg"
+        cv2.imwrite(
+            str(path),
+            frame,
+            [int(cv2.IMWRITE_JPEG_QUALITY), config.JPEG_QUALITY],
+        )
+        return str(path)
+    def set_auto_capture(self, enabled: bool) -> None:
+        """Otomatik kaydı aç/kapat. Kapatınca sayaç referansı sıfırlanır ki
+        tekrar açıldığında ilk kutuda hemen kayıt yapılmasın."""
+        self._auto_capture = enabled
+        if not enabled:
+            self._last_saved_counter = None
+        # ----- kamera yakalama (producer) ------------------------------------
+    def _capture_loop(self) -> None:
+        """
+        TEK yakalama thread'i. Kameradan okur, process_frame'den gecirir,
+        sonucu _last_frame'e yazar. Kameraya dokunan yegane yer burasidir.
+        Consumer'lar (mjpeg_frames) sadece _last_frame'i okur.
+        """
+        target_dt = 1.0 / max(1, config.TARGET_FPS)
+        while not self._capture_stop.is_set():
+            loop_start = time.monotonic()
 
+            streaming = self.is_streaming
+            active = streaming and (
+                self._line_running or not config.REQUIRE_LINE_RUNNING
+            )
+
+            if active:
+                frame = self.camera.read()
+                if frame is not None:
+                    frame = self.process_frame(frame)
+                    with self._frame_lock:
+                        self._last_frame = frame
+                    self._record_frame_time()
+                # kare alinamazsa _last_frame'e dokunma; consumer eski kareyi
+                # veya placeholder'i gosterir.
+                elapsed = time.monotonic() - loop_start
+                sleep_for = target_dt - elapsed
+                if sleep_for > 0:
+                    self._capture_stop.wait(sleep_for)
+            else:
+                # Akis kapali veya hat durdu: kamera OKUNMAZ, CPU yakilmaz.
+                self._fps = 0.0
+                self._capture_stop.wait(0.2)
     # ----- FPS ------------------------------------------------------------
     def _record_frame_time(self) -> None:
         now = time.monotonic()
@@ -194,19 +280,51 @@ class AppState:
         self._fps = float(len(self._frame_times))
 
     # ----- MJPEG kare üretimi --------------------------------------------
+        # ----- MJPEG kare üretimi (consumer) ---------------------------------
     def mjpeg_frames(self):
         """
-        multipart/x-mixed-replace için JPEG kareler üretir (generator).
+        multipart/x-mixed-replace icin JPEG kareler uretir (generator).
 
-        Davranış:
-          * Akış durdurulmuşsa veya hat çalışmıyorsa: canlı kare İŞLENMEZ
-            (boşa CPU yakılmaz). Bunun yerine son kare üzerine durum bilgisi
-            yazılmış statik bir görüntü düşük hızda gönderilir.
-          * Hat çalışıyor ve akış açıksa: kameradan canlı kareler okunur,
-            process_frame()'den geçirilir ve hedef FPS'te akıtılır.
+        Artik kameradan OKUMAZ. Yakalama thread'inin (_capture_loop) yazdigi
+        _last_frame'i alir, JPEG'e cevirir, yollar. Her tarayici baglantisi
+        ayri bir consumer'dir ama hepsi ayni _last_frame'i okur -> kamera
+        izleyici sayisindan bagimsiz, tek kez okunur.
         """
         boundary = b"--frame"
         target_dt = 1.0 / max(1, config.TARGET_FPS)
+
+        while True:
+            streaming = self.is_streaming
+
+            if streaming:
+                with self._frame_lock:
+                    src = None if self._last_frame is None else self._last_frame.copy()
+                if src is not None:
+                    frame = src
+                else:
+                    frame = self._placeholder_frame("KAMERA KARESI BEKLENIYOR")
+                dt = target_dt
+            else:
+                # Akis durdurulmus: karartilmis idle karesi, dusuk hizda.
+                frame = self._idle_frame()
+                dt = 0.5
+
+            ok, jpeg = cv2.imencode(
+                ".jpg",
+                frame,
+                [int(cv2.IMWRITE_JPEG_QUALITY), config.JPEG_QUALITY],
+            )
+            if ok:
+                yield (
+                    boundary
+                    + b"\r\nContent-Type: image/jpeg\r\nContent-Length: "
+                    + str(len(jpeg)).encode()
+                    + b"\r\n\r\n"
+                    + jpeg.tobytes()
+                    + b"\r\n"
+                )
+
+            time.sleep(dt)
 
         while True:
             loop_start = time.monotonic()
@@ -302,8 +420,9 @@ class AppState:
             "line_running": bool(self._line_running),
             "camera_source": config.CAMERA_SOURCE,
             "plc_mode": "snap7" if config.PLC_ENABLED else "mock",
+            "auto_capture": bool(self._auto_capture),
+            "captured_count": int(self._captured_count),
         }
-
     def _camera_connected(self) -> bool:
         try:
             return self.camera.is_opened()

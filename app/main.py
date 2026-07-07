@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .state import AppState
+from . import config
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "static"
@@ -84,17 +85,10 @@ async def camera_stop():
     return JSONResponse({"ok": True, "streaming": False})
 
 @app.post("/snapshot")
-def snapshot(label: str = "raw"):
-    """Son kareyi data/<label>/ altina kaydeder (veri toplama icin)."""
-    if label not in ("ok", "nok", "raw"):
-        raise HTTPException(400, "Gecersiz etiket")
+def snapshot():
+    """Son kareyi elle kaydeder (kontrol amaçlı tekil fotoğraf çekimi)."""
     assert state is not None
-    frame = state.last_frame()
-    if frame is None:
+    saved = state.save_current_frame(config.CAPTURE_LABEL)
+    if saved is None:
         raise HTTPException(409, "Henuz kare yok - akisi baslatin")
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    out_dir = Path("data") / label
-    out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / f"{ts}.jpg"
-    cv2.imwrite(str(path), frame)
-    return {"saved": str(path)}
+    return {"saved": saved}
