@@ -1,13 +1,13 @@
-/* Açık / profesyonel tema — kalite kontrol arayüzü */
+/* Açık / profesyonel tema — turuncu (amber) vurgu */
 :root {
-  --bg: #f3f5f9;
+  --bg: #faf7f2;
   --panel: #ffffff;
-  --panel-2: #eef1f6;
-  --border: #dde3ec;
-  --text: #1f2733;
-  --muted: #69748a;
-  --accent: #2563eb;
-  --accent-soft: #e8f0fe;
+  --panel-2: #f6efe6;
+  --border: #ece2d4;
+  --text: #2a2521;
+  --muted: #8a7d6d;
+  --accent: #ea580c;
+  --accent-soft: #fdeee2;
   --ok: #15a34a;
   --bad: #dc2626;
   --warn: #d97706;
@@ -298,3 +298,28 @@ body {
   box-shadow: var(--shadow);
 }
 .switch-off { opacity: 0.7; }
+
+/* ---- Bildirim (toast) ---- */
+.toast-container {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 1000;
+}
+.toast {
+  padding: 12px 16px;
+  border-radius: 10px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #fff;
+  box-shadow: 0 6px 18px rgba(20, 30, 50, 0.2);
+  opacity: 0;
+  transform: translateX(24px);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.toast.show { opacity: 1; transform: translateX(0); }
+.toast-ok { background: var(--ok); }
+.toast-err { background: var(--bad); }

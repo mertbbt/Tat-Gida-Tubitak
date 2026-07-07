@@ -92,7 +92,8 @@ async function capturePhoto() {
     const res = await fetch(`/snapshot`, { method: "POST" });
     const data = await res.json();
     if (res.ok) {
-      showToast("Fotoğraf kaydedildi", "ok");
+      const name = (data.saved || "").split("/").pop();
+      showToast("✓ Fotoğraf kaydedildi: " + name, "ok");
     } else {
       showToast(`Kaydedilemedi: ${data.detail || "bilinmeyen hata"}`, "err");
     }

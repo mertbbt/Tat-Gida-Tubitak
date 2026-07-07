@@ -12,6 +12,7 @@ burada çalışacaktır.
 """
 from datetime import datetime
 from pathlib import Path
+import re
 import threading
 import time
 from typing import Optional
@@ -220,10 +221,17 @@ class AppState:
             frame = None if self._last_frame is None else self._last_frame.copy()
         if frame is None:
             return None
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         out_dir = Path(config.CAPTURE_DIR) / label
         out_dir.mkdir(parents=True, exist_ok=True)
-        path = out_dir / f"{ts}.jpg"
+        # Artan isimlendirme: data1.jpg, data2.jpg, data3.jpg ...
+        # Klasordeki mevcut en yuksek numarayi bulup bir fazlasini kullan
+        # (uygulama yeniden baslasa da numaralandirma kaldigi yerden devam eder).
+        max_n = 0
+        for f in out_dir.glob("data*.jpg"):
+            m = re.fullmatch(r"data(\d+)\.jpg", f.name)
+            if m:
+                max_n = max(max_n, int(m.group(1)))
+        path = out_dir / f"data{max_n + 1}.jpg"
         cv2.imwrite(
             str(path),
             frame,
