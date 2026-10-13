@@ -231,7 +231,7 @@ class AppState:
             m = re.fullmatch(r"data(\d+)\.jpg", f.name)
             if m:
                 max_n = max(max_n, int(m.group(1)))
-        path = out_dir / f"data{max_n + 1}.jpg"
+        path = out_dir / f"data{max_n + 1:05d}.jpg"
         cv2.imwrite(
             str(path),
             frame,
