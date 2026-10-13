@@ -1,199 +1,125 @@
-# Konserve Kutu Kalite Kontrol — Canlı Görüntüleme Arayüzü (Faz 1)
+# Real-Time Quality Control for a Canned-Food Production Line
 
-TAT Gıda dolum hattında, dolum öncesi konserve kutularındaki hataların tespit
-edilmesini amaçlayan projenin **ilk adımı**. Bu fazda **model/tespit yoktur**;
-hedef canlı görüntü akışı, PLC sayaç okuma ve sonraki faza hazır temiz bir
-proje iskeletidir.
+A computer-vision system that inspects canned-food containers on a live filling line and reaches an accept/reject decision for every single can, in real time, directly at the line.
 
-> Hafta: 29 Haziran – 03 Temmuz. Akademik danışman: Doç. Dr. Yusuf Kuvvetli —
-> Sanayi danışmanı: Çiğdem Şahin.
+Developed during a 20-working-day engineering internship at **TAT Gıda** (Adana, Turkey) for the Department of Computer Engineering, **Çukurova University** — 29 June – 27 July 2026.
 
-## Bu fazda ne var?
+---
 
-- Kameradan canlı görüntü (kamera kaynağı **soyutlanmış**: webcam ↔ Hikrobot).
-- Görüntünün tarayıcıda gerçek zamanlı gösterimi (MJPEG over HTTP).
-- Siemens S7-1500'den **UInt32 sayaç okuma** (gerçek snap7 ↔ mock, soyutlanmış).
-- Hat yalnızca **çalışırken** (sayaç değişiyorken) kare işlenir; durunca CPU
-  boşa yakılmaz.
-- Sade, koyu, endüstriyel arayüz: canlı video, başlat/durdur, FPS, bağlantı
-  durumu, sayaç ve "hat çalışıyor/durdu" rozeti.
+## The Problem
 
-Bu fazda **yapılmayanlar**: model/tespit, hatalı kutu ayırma, PLC'ye yazma,
-veri toplama/etiketleme, yetkilendirme/veritabanı, Jetson'a fiili dağıtım.
+On the filling line, cans are checked by hand for deformation, dents, out-of-roundness and lid-seating defects. Manual inspection is slow, inconsistent between operators, and cannot keep up with the speed of the line. The objective was to detect these defects automatically and in real time, without sending any production imagery outside the plant.
 
-## Hedef çalışma ortamı
+## System Architecture
 
-- Sistem **Nvidia Jetson + Ubuntu (Linux/ARM64)** üzerinde çalışacaktır.
-- Tüm bağımlılıklar Ubuntu/Jetson uyumludur; **Windows'a özel paket yoktur**.
-- Python **3.10+** (python-snap7 ve modern OpenCV ile uyumlu).
-- Geliştirme yerel makinede yapılabilir; mimari Jetson'a taşımayı
-  kolaylaştıracak şekilde sade tutulmuştur.
+![System architecture](docs/architecture.png)
 
-## Kurulum
+An **NVIDIA Jetson** installed at the line runs the entire pipeline on-premise: it acquires frames from an industrial GigE camera, performs inference, decides per can, and serves a live web interface to the quality-control operator. Model training is performed off-device on a cloud GPU, and only the resulting weights are deployed back to the Jetson. Production images never leave the plant network.
 
-> Not: Hedef çalışma ortamı **Ubuntu/Jetson**'dır. Aşağıdaki **Windows** adımları
-> yalnızca yerel **geliştirme/test** içindir; seçilen tüm paketler (FastAPI,
-> OpenCV, python-snap7) Windows'ta da kurulur. Saha dağıtımı Linux'tadır.
+A deliberate architectural rule shaped the codebase: **the backend never knows which concrete camera or PLC is attached.** Both sit behind abstract interfaces and are selected purely through configuration. This allowed the same code to run unchanged against a development webcam and against the production camera on the line.
 
-### Linux / macOS
+## How It Works
+
+| Stage | Implementation |
+| --- | --- |
+| **Acquisition** | Hikrobot MV-CS050-60GC GigE Vision camera (2448×2048, Mono8) through the MVS SDK — device discovery by IP, optimal GigE packet size, continuous grabbing, conversion to BGR |
+| **Detection** | YOLOv8 trained on three classes: `ok`, `nok`, `çentik` (dent) |
+| **Evaluation zone** | A configurable Region of Interest — a can is judged only while fully inside the zone, where lighting and viewing angle are most consistent |
+| **Tracking** | ByteTrack assigns a stable ID to each can, so detections across consecutive frames are known to belong to the same physical object and each can is decided exactly once |
+| **Decision** | Multi-frame voting: a can is rejected only when it is detected as defective in at least *N* frames, so a single noisy frame cannot flip the verdict |
+| **Geometric check** | Otsu thresholding + ellipse fitting; the major/minor axis ratio independently flags out-of-round cans, backing up the learned model with a direct measurement |
+| **Traceability** | Every rejected can is archived as an image, and every decision is written to a CSV log with timestamp, verdict and reason |
+
+## Engineering Highlights
+
+**Motion blur was a physics problem, not a software one.** Fast-moving cans came out smeared. Investigation showed the scene was too dark, forcing a ~23 ms exposure during which a can travels a visible distance. Shorter exposures reduced blur but left the image too dark for the sensor's limited gain to compensate. The fix was at the source: strong fixed industrial lighting was added to the station, which allowed the exposure to be lowered significantly and the gain retuned, producing sharp frames of fast-moving cans.
+
+**CPU inference could not keep up.** Running the model on the Jetson's CPU yielded only a couple of frames per second. Moving inference to the GPU required a CUDA-enabled PyTorch build matching the JetPack version, and resolving a missing `cuDSS` dependency from the vendor's redistributable package. After the fix, inference ran on the GPU with enough headroom to restore full-resolution inference.
+
+**Reliability over raw accuracy.** On a moving line, a per-frame classifier is not enough. The ROI, the tracker and the multi-frame voting rule exist so that one bad frame never produces a wrong verdict — and so that the same can is never counted twice.
+
+## Results
+
+![Per-class detection performance](docs/model-performance.png)
+
+- **Dataset:** ~3,500 images collected from the live production line and hand-labelled in YOLO format across three classes
+- **Overall mAP@0.5: 0.838**
+- Per class — `ok` 0.93 · `nok` 0.81 · `çentik` 0.65
+- Runs in real time on the Jetson at the line's operating speed
+
+The remaining confusion is concentrated between `ok` and `nok`, which is also the hardest distinction visually; `çentik` detection is comparatively weaker and would benefit most from additional labelled examples.
+
+## Tech Stack
+
+`Python` · `FastAPI` · `Uvicorn` · `OpenCV` · `Ultralytics YOLOv8` · `PyTorch (CUDA)` · `ByteTrack` · `NVIDIA Jetson (JetPack 6.2)` · `Hikrobot MVS SDK` · `python-snap7`
+
+## Repository Contents
+
+This repository holds the application framework built for the project:
+
+```
+app/
+  main.py          FastAPI routes — live stream, status, camera control, snapshot
+  state.py         application state, capture thread, frame-processing pipeline
+  config.py        all settings, overridable via environment variables
+  camera/
+    base.py        camera interface
+    webcam.py      development source (OpenCV VideoCapture)
+    hikrobot.py    production source (Hikrobot GigE via MVS SDK)
+  plc/
+    base.py        PLC interface
+    mock.py        simulated counter for development
+    snap7_client.py  Siemens S7-1500 client
+templates/, static/  operator web interface
+docs/                architecture and results figures
+```
+
+The detection module and the trained model weights run on the on-premise Jetson device and are not part of this public repository: the model was trained on TAT Gıda production imagery, which is company property.
+
+## Getting Started
 
 ```bash
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
+
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-### Windows (geliştirme/test)
+Then open <http://localhost:8000>. By default the application starts with a standard webcam, so it runs on any machine without industrial hardware attached.
 
-Python 3.10+ kurulu olmalı (<https://www.python.org/downloads/> — kurulumda
-"Add Python to PATH" işaretleyin).
-
-PowerShell:
-
-```powershell
-python -m venv venv
-venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-```
-
-> PowerShell "running scripts is disabled" hatası verirse, bir kerelik:
-> `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`
-
-Komut İstemi (cmd) kullanıyorsanız aktivasyon satırı:
-
-```bat
-venv\Scripts\activate.bat
-```
-
-## Çalıştırma
+To run against the industrial camera (Linux, MVS SDK installed):
 
 ```bash
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+export LD_LIBRARY_PATH=/opt/MVS/lib/aarch64:$LD_LIBRARY_PATH
+export MVCAM_COMMON_RUNENV=/opt/MVS/lib
+CAMERA_SOURCE=hikrobot HIKROBOT_IP=<camera-ip> \
+  python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-Tarayıcıda: <http://localhost:8000>
+## Configuration
 
-Varsayılan ayarlarla (`CAMERA_SOURCE=webcam`, `PLC_ENABLED=false`):
-canlı webcam görüntüsü + mock sayaç artışı + "hat çalışıyor" rozeti görünür.
+Every setting is read from the environment with a sensible default, so no code change is needed between development and the line.
 
-## Yapılandırma
+| Variable | Default | Description |
+| --- | --- | --- |
+| `CAMERA_SOURCE` | `webcam` | `webcam` or `hikrobot` |
+| `CAMERA_INDEX` | `0` | webcam device index |
+| `HIKROBOT_IP` | — | IP address of the industrial camera |
+| `FRAME_WIDTH` / `FRAME_HEIGHT` | `1280` / `720` | capture resolution |
+| `TARGET_FPS` | `25` | target streaming frame rate |
+| `JPEG_QUALITY` | `80` | MJPEG stream quality |
+| `PLC_ENABLED` | `false` | enable the Siemens S7 client |
+| `PLC_IP` | `192.168.0.1` | PLC address |
+| `CAPTURE_DIR` | `data` | where captured frames are written |
 
-Tüm bağlantı parametreleri `app/config.py` içinde **ya da** ortam
-değişkenleriyle ayarlanır (ortam değişkeni önceliklidir). Kaynak değiştirmek
-**sadece config** ile yapılır; kod değişmez.
+## Roadmap
 
-```bash
-# Saha kamerasına geç (Hikrobot iskeleti — bkz. aşağıdaki not)
-CAMERA_SOURCE=hikrobot uvicorn app.main:app
+- PLC integration for physically ejecting rejected cans from the line
+- Classifying the specific defect type instead of a binary verdict
+- TensorRT export for additional inference throughput
+- Expanding the dataset, in particular for the `çentik` class
 
-# Gerçek PLC'ye geç
-PLC_ENABLED=true PLC_IP=192.168.0.10 PLC_DB_NUMBER=10 PLC_COUNTER_OFFSET=0 \
-  uvicorn app.main:app
-```
+## Acknowledgements
 
-Öne çıkan ayarlar:
-
-| Ayar | Açıklama |
-|------|----------|
-| `CAMERA_SOURCE` | `webcam` (geliştirme) / `hikrobot` (saha) |
-| `CAMERA_INDEX`, `FRAME_WIDTH`, `FRAME_HEIGHT`, `TARGET_FPS`, `JPEG_QUALITY` | Kamera/akış |
-| `PLC_ENABLED` | `false` → mock sayaç, `true` → gerçek snap7 |
-| `PLC_IP`, `PLC_RACK`, `PLC_SLOT`, `PLC_DB_NUMBER`, `PLC_COUNTER_OFFSET` | S7-1500 bağlantısı |
-| `PLC_POLL_INTERVAL`, `LINE_RUNNING_TIMEOUT` | Yoklama ve "hat çalışıyor" eşiği |
-
-> Net olmayan PLC/kamera parametreleri `config.py` içinde `# TODO: otomasyon
-> ekibinden alınacak` ile işaretlidir; varsayılan/placeholder değer verilmiştir.
-
-## Mimari
-
-Backend yalnızca **"kare üreten bir kaynak"** ve **"hat durumu veren bir
-sinyal"** görür; bunların somut tipini bilmez.
-
-```
-app/
-├── main.py            FastAPI route'ları + yaşam döngüsü
-├── config.py          Tüm ayarlar (env override)
-├── state.py           Çalışma zamanı durumu + kaynak fabrikaları + akış mantığı
-├── camera/
-│   ├── base.py        CameraSource soyut arayüzü
-│   ├── webcam.py      OpenCV VideoCapture (geliştirme)
-│   └── hikrobot.py    Hikrobot GigE iskeleti (saha) — TODO
-└── plc/
-    ├── base.py        PLCClient soyut arayüzü + "hat çalışıyor" mantığı
-    ├── snap7_client.py  S7-1500 UInt32 okuma
-    └── mock.py        Artan sahte sayaç (geliştirme)
-```
-
-- **Webcam ↔ Hikrobot** geçişi: `CAMERA_SOURCE`.
-- **Mock ↔ gerçek snap7** geçişi: `PLC_ENABLED`.
-- **Model kancası**: `app/state.py` içindeki `process_frame()`. Şu an kareyi
-  olduğu gibi döndürür; sonraki fazda inference burada çalışacaktır
-  (`# TODO: model inference`). Arayüzde de "Tespit (sonraki faz)" için boş yer
-  tutucu alan bırakılmıştır.
-
-## Endpoint'ler
-
-| Yöntem | Yol | Açıklama |
-|--------|-----|----------|
-| GET | `/` | Arayüz |
-| GET | `/video_feed` | MJPEG canlı akış |
-| GET | `/status` | JSON: fps, camera_connected, plc_connected, counter, line_running |
-| POST | `/camera/start` | Akışı başlat |
-| POST | `/camera/stop` | Akışı durdur |
-
-## Donanım ön koşulları (otomasyon ekibiyle teyit edilecek)
-
-Bunlar **kod değildir**; PLC/kamera tarafının doğru ayarlanması gerekenlerdir.
-Geliştirici bunları koda gömmez; bağlantı parametreleri config'ten okunur.
-
-### Siemens S7-1500 (snap7 ile okuma için)
-
-- **CPU Protection → Connection mechanisms → "Permit access with PUT/GET
-  communication"** etkin olmalı.
-- Okunacak Data Block için **"Optimized block access" KAPALI** olmalı (snap7
-  yalnızca mutlak byte adreslemeli / optimize olmayan bloklara erişir).
-- Gerekli parametreler: IP, rack, slot (tipik S7-1500: `rack=0, slot=1`), DB
-  numarası, sayacın byte offset'i.
-- Parametreler net değilse `config.py`'de `TODO` olarak işaretlidir; otomasyon
-  ekibinden istenmelidir.
-
-### Hikrobot MV-CS050-60GC (GigE)
-
-- SDK: <https://www.hikrobotics.com/en/machinevision/service/download/>
-  (yerel makineye/Jetson'a kurulacak).
-- GigE kamera ile PC/Jetson **aynı alt ağda** olmalı; jumbo frame ve doğru NIC
-  IP ayarı performans için önemlidir.
-- Bu fazda fiziksel kamera yoksa **webcam** kaynağıyla geliştirilir; Hikrobot
-  kaynağı arayüzü uygulanmış ama "saha modu" iskeleti olarak bırakılmıştır
-  (`app/camera/hikrobot.py`).
-
-## Teknoloji yığını
-
-- **Backend:** Python + FastAPI + uvicorn (streaming/WebSocket dostu, Jetson
-  uyumlu).
-- **Görüntü:** OpenCV (`opencv-python`); Hikrobot için SDK (MvImport) veya
-  Aravis/Harvester.
-- **Akış:** MJPEG over HTTP (`multipart/x-mixed-replace`) — tarayıcıda `<img>`
-  ile çalışır. Düşük gecikme gerekirse ileride WebRTC değerlendirilebilir.
-- **PLC:** python-snap7 (saf Python, native bağımlılık yok → Jetson dostu).
-- **Frontend:** tek sayfa HTML + CSS + vanilla JS.
-
-## Başarı ölçütü (bu faz)
-
-- [x] `localhost:8000`'de tarayıcıda canlı webcam görüntüsü akıyor.
-- [x] Başlat / Durdur çalışıyor.
-- [x] FPS ve bağlantı durumu arayüzde görünüyor.
-- [x] Mock PLC ile sayaç ve "hat çalışıyor/durdu" durumu doğru güncelleniyor.
-- [x] Hat "durdu" durumunda gereksiz kare işleme yapılmıyor.
-- [x] Kaynaklar soyutlanmış: webcam↔Hikrobot, mock↔snap7 sadece config ile.
-- [x] Tüm bağımlılıklar Ubuntu/Jetson uyumlu (Windows'a özel paket yok).
-- [x] Kod, sonraki faz model entegrasyonu için temiz ayrılmış.
-
-## Sonraki aşamalar (bu hafta yapılmayacak)
-
-1. Hikrobot GigE saha modu (SDK/Aravis ile gerçek bağlantı, performans ayarı).
-2. Veri toplama & etiketleme.
-3. Model: CNN/YOLO tabanlı hata tespiti, Jetson'da gerçek zamanlı çıkarım.
-4. PLC yazma / hatalı kutu ayırma.
-5. Web arayüzü genişletme (canlı işaretleme, istatistik, geçmiş kayıt,
-   yetkilendirme).
+Academic advisor: Doç. Dr. Yusuf Kuvvetli · Industry advisor: Çiğdem Şahin — and the TAT Gıda engineering team for their support throughout the internship.
